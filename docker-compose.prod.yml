@@ -1,0 +1,119 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    logging: *default-logging
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+      API_DOMAIN: ${API_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      frontend:
+        condition: service_started
+      backend:
+        condition: service_healthy
+    networks:
+      - public
+      - internal
+
+  frontend:
+    image: ghcr.io/art-crazy/kartochki-online-front:latest
+    restart: unless-stopped
+    logging: *default-logging
+    env_file:
+      - ./frontend.env
+    expose:
+      - "3000"
+    networks:
+      - internal
+
+  backend:
+    image: ghcr.io/art-crazy/kartochki-online-backend:latest
+    restart: unless-stopped
+    logging: *default-logging
+    env_file:
+      - ./backend.env
+    expose:
+      - "8080"
+    volumes:
+      - backend-storage:/app/storage
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health/live >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  migrate:
+    image: ghcr.io/art-crazy/kartochki-online-backend:latest
+    restart: "no"
+    logging: *default-logging
+    env_file:
+      - ./backend.env
+    entrypoint: ["/bin/sh", "-c"]
+    command: ['/app/migrate -path /app/db/migrations -database "$$POSTGRES_DSN" up']
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    logging: *default-logging
+    env_file:
+      - ./postgres.env
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    logging: *default-logging
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+volumes:
+  caddy-data:
+  caddy-config:
+  postgres-data:
+  redis-data:
+  backend-storage:
+
+networks:
+  public: {}
+  internal: {}

@@ -1,0 +1,114 @@
+name: Setup server
+
+on:
+  workflow_dispatch:
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/server_key
+          chmod 600 ~/.ssh/server_key
+          ssh-keyscan -H "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Bootstrap server
+        env:
+          DEPLOY_PUBLIC_KEY: ${{ secrets.DEPLOY_PUBLIC_KEY }}
+        run: |
+          printf 'DEPLOY_PUBLIC_KEY=%q\n' "$DEPLOY_PUBLIC_KEY" > bootstrap.env
+          scp -i ~/.ssh/server_key bootstrap.env root@${{ secrets.SERVER_HOST }}:/tmp/kartochki-bootstrap.env
+          ssh -i ~/.ssh/server_key root@${{ secrets.SERVER_HOST }} \
+            "set -a; . /tmp/kartochki-bootstrap.env; rm -f /tmp/kartochki-bootstrap.env; set +a; bash -s" \
+            < scripts/bootstrap.sh
+
+      - name: Upload infra files
+        run: |
+          ssh -i ~/.ssh/server_key root@${{ secrets.SERVER_HOST }} 'install -d -m 0755 -o arzhannikov_bot -g arzhannikov_bot /opt/kartochki'
+
+          scp -i ~/.ssh/server_key docker-compose.prod.yml root@${{ secrets.SERVER_HOST }}:/tmp/kartochki-docker-compose.yml
+          scp -i ~/.ssh/server_key Caddyfile root@${{ secrets.SERVER_HOST }}:/tmp/kartochki-Caddyfile
+          scp -i ~/.ssh/server_key scripts/deploy.sh root@${{ secrets.SERVER_HOST }}:/tmp/kartochki-deploy.sh
+          scp -i ~/.ssh/server_key scripts/backup-postgres.sh root@${{ secrets.SERVER_HOST }}:/tmp/kartochki-backup-postgres.sh
+          scp -i ~/.ssh/server_key scripts/setup-yandex-disk-rclone.sh root@${{ secrets.SERVER_HOST }}:/tmp/kartochki-setup-yandex-disk-rclone.sh
+          scp -i ~/.ssh/server_key scripts/backup-postgres-to-yandex-disk.sh root@${{ secrets.SERVER_HOST }}:/tmp/kartochki-backup-postgres-to-yandex-disk.sh
+
+          ssh -i ~/.ssh/server_key root@${{ secrets.SERVER_HOST }} '
+            set -e
+            install -m 0644 -o arzhannikov_bot -g arzhannikov_bot /tmp/kartochki-docker-compose.yml /opt/kartochki/docker-compose.yml
+            install -m 0644 -o arzhannikov_bot -g arzhannikov_bot /tmp/kartochki-Caddyfile /opt/kartochki/Caddyfile
+            install -m 0755 -o arzhannikov_bot -g arzhannikov_bot /tmp/kartochki-deploy.sh /opt/kartochki/deploy.sh
+            install -m 0755 -o arzhannikov_bot -g arzhannikov_bot /tmp/kartochki-backup-postgres.sh /opt/kartochki/backup-postgres.sh
+            install -m 0755 -o arzhannikov_bot -g arzhannikov_bot /tmp/kartochki-setup-yandex-disk-rclone.sh /opt/kartochki/setup-yandex-disk-rclone.sh
+            install -m 0755 -o arzhannikov_bot -g arzhannikov_bot /tmp/kartochki-backup-postgres-to-yandex-disk.sh /opt/kartochki/backup-postgres-to-yandex-disk.sh
+            rm -f /tmp/kartochki-*
+          '
+
+      - name: Write infra env files
+        env:
+          DOMAIN: ${{ secrets.DOMAIN }}
+          API_DOMAIN: ${{ secrets.API_DOMAIN }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+        run: |
+          {
+            printf 'DOMAIN=%s\n' "$DOMAIN"
+            printf 'API_DOMAIN=%s\n' "$API_DOMAIN"
+          } > .env.server
+
+          {
+            printf 'POSTGRES_DB=%s\n' "$POSTGRES_DB"
+            printf 'POSTGRES_USER=%s\n' "$POSTGRES_USER"
+            printf 'POSTGRES_PASSWORD=%s\n' "$POSTGRES_PASSWORD"
+          } > postgres.env.server
+
+          scp -i ~/.ssh/server_key .env.server root@${{ secrets.SERVER_HOST }}:/tmp/kartochki-.env
+          scp -i ~/.ssh/server_key postgres.env.server root@${{ secrets.SERVER_HOST }}:/tmp/kartochki-postgres.env
+
+          ssh -i ~/.ssh/server_key root@${{ secrets.SERVER_HOST }} '
+            set -e
+            install -m 0600 -o arzhannikov_bot -g arzhannikov_bot /tmp/kartochki-.env /opt/kartochki/.env
+            install -m 0600 -o arzhannikov_bot -g arzhannikov_bot /tmp/kartochki-postgres.env /opt/kartochki/postgres.env
+            touch /opt/kartochki/backend.env /opt/kartochki/frontend.env
+            chown arzhannikov_bot:arzhannikov_bot /opt/kartochki/backend.env /opt/kartochki/frontend.env
+            chmod 0600 /opt/kartochki/backend.env /opt/kartochki/frontend.env
+            rm -f /tmp/kartochki-.env /tmp/kartochki-postgres.env
+          '
+
+      - name: Configure Yandex Disk backup
+        if: ${{ secrets.YANDEX_DISK_USERNAME != '' && secrets.YANDEX_DISK_APP_PASSWORD != '' }}
+        env:
+          YANDEX_DISK_USERNAME: ${{ secrets.YANDEX_DISK_USERNAME }}
+          YANDEX_DISK_APP_PASSWORD: ${{ secrets.YANDEX_DISK_APP_PASSWORD }}
+          RCLONE_REMOTE_PATH: ${{ secrets.RCLONE_REMOTE_PATH }}
+        run: |
+          {
+            printf 'YANDEX_DISK_USERNAME=%q\n' "$YANDEX_DISK_USERNAME"
+            printf 'YANDEX_DISK_APP_PASSWORD=%q\n' "$YANDEX_DISK_APP_PASSWORD"
+            printf 'RCLONE_REMOTE_PATH=%q\n' "$RCLONE_REMOTE_PATH"
+          } > yandex-disk.env
+
+          scp -i ~/.ssh/server_key yandex-disk.env root@${{ secrets.SERVER_HOST }}:/tmp/kartochki-yandex-disk.env
+
+          ssh -i ~/.ssh/server_key root@${{ secrets.SERVER_HOST }} '
+            set -e
+            install -m 0600 -o arzhannikov_bot -g arzhannikov_bot /tmp/kartochki-yandex-disk.env /opt/kartochki/yandex-disk.env
+            rm -f /tmp/kartochki-yandex-disk.env
+            cd /opt/kartochki
+            sudo -u arzhannikov_bot sh -c "set -a; . ./yandex-disk.env; set +a; ./setup-yandex-disk-rclone.sh"
+          '
+
+      - name: Validate compose config
+        run: |
+          ssh -i ~/.ssh/server_key root@${{ secrets.SERVER_HOST }} '
+            cd /opt/kartochki
+            sudo -u arzhannikov_bot docker compose config --quiet
+          '
