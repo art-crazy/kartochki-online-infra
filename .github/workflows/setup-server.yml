@@ -15,7 +15,7 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          printf '%s\n' "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/server_key
+          printf '%s\n' "${{ secrets.SERVER_ROOT_SSH_KEY }}" > ~/.ssh/server_key
           chmod 600 ~/.ssh/server_key
           ssh-keyscan -H "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts
 

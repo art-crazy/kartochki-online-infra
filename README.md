@@ -65,7 +65,8 @@ Infra/deploy secrets:
 ```text
 SERVER_HOST
 SERVER_USER
-SERVER_SSH_KEY
+SERVER_ROOT_SSH_KEY
+DEPLOY_PUBLIC_KEY
 DOMAIN
 API_DOMAIN
 POSTGRES_DB
@@ -75,6 +76,12 @@ YANDEX_DISK_USERNAME
 YANDEX_DISK_APP_PASSWORD
 RCLONE_REMOTE_PATH
 ```
+
+`SERVER_ROOT_SSH_KEY` is the private key for root SSH access used only by this infra workflow.
+
+`DEPLOY_PUBLIC_KEY` is the public key added to `/home/arzhannikov_bot/.ssh/authorized_keys`.
+
+Frontend/backend deploy workflows should use their own deploy private key, not `SERVER_ROOT_SSH_KEY`.
 
 Infra GitHub Actions should generate:
 
