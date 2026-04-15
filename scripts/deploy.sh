@@ -49,6 +49,12 @@ wait_healthy() {
   exit 1
 }
 
+start_caddy_if_ready() {
+  if [ -s .env ] && [ -s backend.env ] && [ -s frontend.env ]; then
+    docker compose up -d --no-deps caddy
+  fi
+}
+
 case "$SERVICE" in
   all)
     require_non_empty_file .env
@@ -70,6 +76,7 @@ case "$SERVICE" in
     require_non_empty_file frontend.env
     docker compose pull frontend
     docker compose up -d frontend
+    start_caddy_if_ready
     ;;
   backend)
     require_non_empty_file .env
@@ -82,6 +89,7 @@ case "$SERVICE" in
     docker compose run --rm migrate
     docker compose up -d --no-deps backend
     wait_healthy backend
+    start_caddy_if_ready
     ;;
   caddy)
     require_non_empty_file .env
