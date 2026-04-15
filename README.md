@@ -15,9 +15,11 @@ Uses:
 ## Files
 
 - `docker-compose.prod.yml` - production compose.
+- `docker-compose.postgres-public.yml` - optional PostgreSQL port publishing.
 - `Caddyfile` - HTTPS reverse proxy.
 - `scripts/bootstrap.sh` - first Ubuntu setup.
 - `scripts/deploy.sh` - service deploy.
+- `scripts/configure-postgres-public-access.sh` - optional PostgreSQL public access firewall.
 - `scripts/backup-postgres.sh` - local PostgreSQL backup.
 - `scripts/setup-yandex-disk-rclone.sh` - non-interactive rclone setup for Yandex Disk.
 - `scripts/backup-postgres-to-yandex-disk.sh` - PostgreSQL backup upload to Yandex Disk.
@@ -54,6 +56,8 @@ backup-postgres-to-yandex-disk.sh
 ```
 
 Copy `docker-compose.prod.yml` to the server as `docker-compose.yml`.
+Copy `docker-compose.postgres-public.yml` and `configure-postgres-public-access.sh`
+only if temporary public PostgreSQL access is needed.
 
 ## Infra Secrets
 
@@ -71,6 +75,7 @@ API_DOMAIN
 POSTGRES_DB
 POSTGRES_USER
 POSTGRES_PASSWORD
+POSTGRES_PUBLIC_ALLOWED_CIDR
 YANDEX_DISK_USERNAME
 YANDEX_DISK_APP_PASSWORD
 RCLONE_REMOTE_PATH
@@ -94,7 +99,11 @@ Infra GitHub Actions should generate:
 ```text
 DOMAIN
 API_DOMAIN
+POSTGRES_PUBLIC_ALLOWED_CIDR
 ```
+
+`POSTGRES_PUBLIC_ALLOWED_CIDR` is optional. Leave it empty to keep PostgreSQL private.
+Use a single trusted IP with `/32`, for example `198.51.100.10/32`.
 
 `/opt/kartochki/postgres.env`:
 
@@ -147,6 +156,41 @@ Bootstrap opens only:
 ```
 
 PostgreSQL and Redis are not published publicly.
+
+Optional PostgreSQL public access:
+
+1. Put the allowed client CIDR into `/opt/kartochki/.env`:
+
+```text
+POSTGRES_PUBLIC_ALLOWED_CIDR=198.51.100.10/32
+```
+
+2. Copy `docker-compose.postgres-public.yml` and `configure-postgres-public-access.sh` to `/opt/kartochki`.
+3. Run the firewall script as root:
+
+```bash
+cd /opt/kartochki
+sudo bash ./configure-postgres-public-access.sh
+```
+
+4. Redeploy PostgreSQL. `deploy.sh` will attach `docker-compose.postgres-public.yml`
+only when `POSTGRES_PUBLIC_ALLOWED_CIDR` is set:
+
+```bash
+cd /opt/kartochki
+./deploy.sh postgres
+```
+
+The extra compose file publishes `5432`, and the script limits access in Docker
+`DOCKER-USER`. This matters because Docker-published ports can bypass normal UFW
+rules.
+
+`deploy.sh` refuses to publish PostgreSQL until the firewall script has configured
+the same CIDR.
+
+When the script is run as root, it also installs
+`kartochki-postgres-public-access.service` so the Docker firewall rules are
+restored after a VPS reboot.
 
 ## Local PostgreSQL Backup
 

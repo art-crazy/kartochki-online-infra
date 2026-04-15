@@ -38,8 +38,10 @@ jobs:
           ssh -i ~/.ssh/server_key root@${{ secrets.SERVER_HOST }} "install -d -m 0755 -o '$DEPLOY_USER' -g '$DEPLOY_USER' /opt/kartochki"
 
           scp -i ~/.ssh/server_key docker-compose.prod.yml root@${{ secrets.SERVER_HOST }}:/tmp/kartochki-docker-compose.yml
+          scp -i ~/.ssh/server_key docker-compose.postgres-public.yml root@${{ secrets.SERVER_HOST }}:/tmp/kartochki-docker-compose-postgres-public.yml
           scp -i ~/.ssh/server_key Caddyfile root@${{ secrets.SERVER_HOST }}:/tmp/kartochki-Caddyfile
           scp -i ~/.ssh/server_key scripts/deploy.sh root@${{ secrets.SERVER_HOST }}:/tmp/kartochki-deploy.sh
+          scp -i ~/.ssh/server_key scripts/configure-postgres-public-access.sh root@${{ secrets.SERVER_HOST }}:/tmp/kartochki-configure-postgres-public-access.sh
           scp -i ~/.ssh/server_key scripts/backup-postgres.sh root@${{ secrets.SERVER_HOST }}:/tmp/kartochki-backup-postgres.sh
           scp -i ~/.ssh/server_key scripts/setup-yandex-disk-rclone.sh root@${{ secrets.SERVER_HOST }}:/tmp/kartochki-setup-yandex-disk-rclone.sh
           scp -i ~/.ssh/server_key scripts/backup-postgres-to-yandex-disk.sh root@${{ secrets.SERVER_HOST }}:/tmp/kartochki-backup-postgres-to-yandex-disk.sh
@@ -48,8 +50,10 @@ jobs:
             set -e
             deploy_user='"$DEPLOY_USER"'
             install -m 0644 -o "$deploy_user" -g "$deploy_user" /tmp/kartochki-docker-compose.yml /opt/kartochki/docker-compose.yml
+            install -m 0644 -o "$deploy_user" -g "$deploy_user" /tmp/kartochki-docker-compose-postgres-public.yml /opt/kartochki/docker-compose.postgres-public.yml
             install -m 0644 -o "$deploy_user" -g "$deploy_user" /tmp/kartochki-Caddyfile /opt/kartochki/Caddyfile
             install -m 0755 -o "$deploy_user" -g "$deploy_user" /tmp/kartochki-deploy.sh /opt/kartochki/deploy.sh
+            install -m 0755 -o "$deploy_user" -g "$deploy_user" /tmp/kartochki-configure-postgres-public-access.sh /opt/kartochki/configure-postgres-public-access.sh
             install -m 0755 -o "$deploy_user" -g "$deploy_user" /tmp/kartochki-backup-postgres.sh /opt/kartochki/backup-postgres.sh
             install -m 0755 -o "$deploy_user" -g "$deploy_user" /tmp/kartochki-setup-yandex-disk-rclone.sh /opt/kartochki/setup-yandex-disk-rclone.sh
             install -m 0755 -o "$deploy_user" -g "$deploy_user" /tmp/kartochki-backup-postgres-to-yandex-disk.sh /opt/kartochki/backup-postgres-to-yandex-disk.sh
@@ -61,6 +65,7 @@ jobs:
           DEPLOY_USER: ${{ secrets.SERVER_USER }}
           DOMAIN: ${{ secrets.DOMAIN }}
           API_DOMAIN: ${{ secrets.API_DOMAIN }}
+          POSTGRES_PUBLIC_ALLOWED_CIDR: ${{ secrets.POSTGRES_PUBLIC_ALLOWED_CIDR }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
           POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
@@ -68,6 +73,7 @@ jobs:
           {
             printf 'DOMAIN=%s\n' "$DOMAIN"
             printf 'API_DOMAIN=%s\n' "$API_DOMAIN"
+            printf 'POSTGRES_PUBLIC_ALLOWED_CIDR=%s\n' "$POSTGRES_PUBLIC_ALLOWED_CIDR"
           } > .env.server
 
           {
@@ -88,6 +94,8 @@ jobs:
             chown "$deploy_user:$deploy_user" /opt/kartochki/backend.env /opt/kartochki/frontend.env
             chmod 0600 /opt/kartochki/backend.env /opt/kartochki/frontend.env
             rm -f /tmp/kartochki-.env /tmp/kartochki-postgres.env
+            cd /opt/kartochki
+            bash ./configure-postgres-public-access.sh
           '
 
       - name: Configure Yandex Disk backup
@@ -125,5 +133,14 @@ jobs:
         run: |
           ssh -i ~/.ssh/server_key root@${{ secrets.SERVER_HOST }} '
             cd /opt/kartochki
-            sudo -u "'"$DEPLOY_USER"'" docker compose config --quiet
+            sudo -u "'"$DEPLOY_USER"'" bash -lc "
+              set -a
+              . ./.env
+              set +a
+              if [ -n \"\${POSTGRES_PUBLIC_ALLOWED_CIDR:-}\" ]; then
+                docker compose -f docker-compose.yml -f docker-compose.postgres-public.yml config --quiet
+              else
+                docker compose config --quiet
+              fi
+            "
           '

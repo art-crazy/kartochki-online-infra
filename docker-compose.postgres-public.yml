@@ -1,0 +1,4 @@
+services:
+  postgres:
+    ports:
+      - "${POSTGRES_PUBLIC_BIND_IP:-0.0.0.0}:5432:5432"
