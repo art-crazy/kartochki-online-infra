@@ -22,7 +22,6 @@ Uses:
 - `scripts/setup-yandex-disk-rclone.sh` - non-interactive rclone setup for Yandex Disk.
 - `scripts/backup-postgres-to-yandex-disk.sh` - PostgreSQL backup upload to Yandex Disk.
 - `env/.env.example` - mock GitHub Repository Secrets for infra/deploy.
-- `examples/compose-check/*` - mock files for `docker compose config` validation only.
 
 ## Server Setup
 
