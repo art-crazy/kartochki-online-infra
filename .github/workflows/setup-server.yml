@@ -84,12 +84,16 @@ jobs:
           '
 
       - name: Configure Yandex Disk backup
-        if: ${{ secrets.YANDEX_DISK_USERNAME != '' && secrets.YANDEX_DISK_APP_PASSWORD != '' }}
         env:
           YANDEX_DISK_USERNAME: ${{ secrets.YANDEX_DISK_USERNAME }}
           YANDEX_DISK_APP_PASSWORD: ${{ secrets.YANDEX_DISK_APP_PASSWORD }}
           RCLONE_REMOTE_PATH: ${{ secrets.RCLONE_REMOTE_PATH }}
         run: |
+          if [ -z "$YANDEX_DISK_USERNAME" ] || [ -z "$YANDEX_DISK_APP_PASSWORD" ]; then
+            echo "Yandex Disk secrets are empty; skipping backup setup."
+            exit 0
+          fi
+
           {
             printf 'YANDEX_DISK_USERNAME=%q\n' "$YANDEX_DISK_USERNAME"
             printf 'YANDEX_DISK_APP_PASSWORD=%q\n' "$YANDEX_DISK_APP_PASSWORD"
@@ -103,7 +107,7 @@ jobs:
             install -m 0600 -o arzhannikov_bot -g arzhannikov_bot /tmp/kartochki-yandex-disk.env /opt/kartochki/yandex-disk.env
             rm -f /tmp/kartochki-yandex-disk.env
             cd /opt/kartochki
-            sudo -u arzhannikov_bot sh -c "set -a; . ./yandex-disk.env; set +a; ./setup-yandex-disk-rclone.sh"
+            sudo -u arzhannikov_bot bash -lc "set -a; . ./yandex-disk.env; set +a; ./setup-yandex-disk-rclone.sh"
           '
 
       - name: Validate compose config
