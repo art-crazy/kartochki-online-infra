@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEPLOY_USER="${DEPLOY_USER:-arzhannikov_bot}"
+DEPLOY_USER="${DEPLOY_USER:-deploy_user}"
 APP_DIR="${APP_DIR:-/opt/kartochki}"
 DEPLOY_PUBLIC_KEY="${DEPLOY_PUBLIC_KEY:-}"
 

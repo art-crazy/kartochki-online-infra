@@ -30,8 +30,8 @@ Download `scripts/bootstrap.sh` from this repository, review it, and run it as r
 Bootstrap:
 
 - installs Docker, UFW, fail2ban, unattended-upgrades, rclone;
-- creates `arzhannikov_bot`;
-- adds `arzhannikov_bot` to the `docker` group;
+- creates the deploy user from `SERVER_USER`;
+- adds the deploy user to the `docker` group;
 - creates `/opt/kartochki`;
 - opens `22`, `80`, `443`;
 - keeps current root/password SSH settings unchanged.
@@ -78,7 +78,7 @@ RCLONE_REMOTE_PATH
 
 `SERVER_ROOT_SSH_KEY` is the private key for root SSH access used only by this infra workflow.
 
-`DEPLOY_PUBLIC_KEY` is the public key added to `/home/arzhannikov_bot/.ssh/authorized_keys`.
+`DEPLOY_PUBLIC_KEY` is the public key added to the deploy user's `authorized_keys`.
 
 Frontend/backend deploy workflows should use their own deploy private key, not `SERVER_ROOT_SSH_KEY`.
 
