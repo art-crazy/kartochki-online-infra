@@ -131,7 +131,7 @@ Frontend:
 ssh "$SERVER_USER@$SERVER_HOST" 'cd /opt/kartochki && ./deploy.sh frontend'
 ```
 
-Backend deploy starts PostgreSQL and Redis, runs migrations, then starts backend.
+Backend deploy starts PostgreSQL and Redis, runs migrations, synchronizes blog content from the backend image, then starts backend.
 
 ## SSL
 

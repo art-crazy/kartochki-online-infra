@@ -76,6 +76,19 @@ services:
     networks:
       - internal
 
+  blogsync:
+    image: ghcr.io/art-crazy/kartochki-online-backend:latest
+    restart: "no"
+    logging: *default-logging
+    env_file:
+      - ./backend.env
+    command: ["/app/blogsync", "-dir", "/app/content/blog"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+
   postgres:
     image: postgres:17
     restart: unless-stopped

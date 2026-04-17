@@ -111,6 +111,7 @@ case "$SERVICE" in
     wait_healthy postgres
     wait_healthy redis
     compose run --rm migrate
+    compose run --rm blogsync
     compose up -d --no-deps backend
     wait_healthy backend
     compose up -d frontend
@@ -133,6 +134,7 @@ case "$SERVICE" in
     wait_healthy postgres
     wait_healthy redis
     compose run --rm migrate
+    compose run --rm blogsync
     compose up -d --no-deps backend
     wait_healthy backend
     start_caddy_if_ready
