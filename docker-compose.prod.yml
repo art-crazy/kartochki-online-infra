@@ -82,7 +82,8 @@ services:
     logging: *default-logging
     env_file:
       - ./backend.env
-    command: ["/app/blogsync", "-dir", "/app/content/blog"]
+    entrypoint: ["/app/blogsync"]
+    command: ["-dir", "/app/content/blog"]
     depends_on:
       postgres:
         condition: service_healthy
