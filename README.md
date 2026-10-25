@@ -256,6 +256,9 @@ REMOTE_RETENTION_DAYS=14
 For an existing server, install only these scripts; running the entire setup workflow can also replace Caddy and Compose configuration.
 
 ```bash
+# First provision age and the public recipient (never a private key):
+sudo apt-get install -y age
+sudo install -m 0644 owner-public-key.pub /opt/kartochki/backup-recipients.txt
 sudo bash /opt/kartochki/setup-backups.sh
 sudo systemctl start kartochki-backup.service
 ```
@@ -287,7 +290,12 @@ Optional variables can be set in a service drop-in (`Environment=...`):
 
 The uploader reads each remote part back and compares SHA256 before marking success or pruning
 old complete archives. Backups use the existing Yandex Disk WebDAV account over HTTPS; this workflow
-does not add client-side encryption. Local backups are created with private permissions.
+encrypts complete archives with age before upload. Local complete archives are encrypted too;
+the separate local DB dump remains private plaintext gzip. Public recipients live in
+`/opt/kartochki/backup-recipients.txt`. Set repository variable `BACKUP_RECIPIENT` for repeatable
+server setup. The configured recipient is the owner's existing SSH public key; recovery uses its
+matching local SSH private key (`~/.ssh/id_rsa`). The private key is never uploaded to the VPS.
+Keep an independent copy of that identity: changing/removing it does not re-encrypt old backups.
 
 ```bash
 systemctl status kartochki-backup.timer kartochki-backup.service
@@ -306,11 +314,12 @@ recovery host, verify and assemble the parts (use the actual archive name from `
 
 ```bash
 sha256sum -c PARTS.sha256
-cat kartochki-complete-*.tar.gz.part-* > "$(awk '{print $2}' ARCHIVE.sha256)"
+cat kartochki-complete-*.tar.gz.age.part-* > "$(awk '{print $2}' ARCHIVE.sha256)"
 sha256sum -c ARCHIVE.sha256
+age --decrypt -i ~/.ssh/id_rsa "$(awk '{print $2}' ARCHIVE.sha256)" > recovered.tar.gz
 ```
 
-Extract the assembled archive into a private directory and run `sha256sum -c SHA256SUMS`.
+Extract `recovered.tar.gz` into a private directory and run `sha256sum -c SHA256SUMS`.
 Restore `database.sql.gz` into a **new PostgreSQL 17 database** using `psql -v ON_ERROR_STOP=1`.
 The dump excludes original owner/ACL statements so the restore role can own recovered objects;
 reapply required application grants before switching production. Inspect and extract `storage.tar.gz`

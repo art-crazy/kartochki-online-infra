@@ -132,6 +132,15 @@ jobs:
             sudo -u "$deploy_user" bash -lc "set -a; . ./yandex-disk.env; set +a; ./setup-yandex-disk-rclone.sh"
           '
 
+      - name: Configure public backup recipient
+        env:
+          BACKUP_RECIPIENT: ${{ vars.BACKUP_RECIPIENT }}
+        run: |
+          if [ -n "$BACKUP_RECIPIENT" ]; then
+            printf '%s\n' "$BACKUP_RECIPIENT" | ssh -i ~/.ssh/server_key root@${{ secrets.SERVER_HOST }} \
+              'install -m 0644 /dev/stdin /opt/kartochki/backup-recipients.txt'
+          fi
+
       - name: Install daily backup timer
         run: |
           ssh -i ~/.ssh/server_key root@${{ secrets.SERVER_HOST }} '

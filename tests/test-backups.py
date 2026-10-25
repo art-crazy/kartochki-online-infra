@@ -16,6 +16,10 @@ with tempfile.TemporaryDirectory(prefix="kartochki-backup-test-") as directory:
     for name in ("backup-postgres.sh", "backup-all-to-yandex-disk.sh"):
         shutil.copy(source / name, app / name)
     (app / "rclone.conf").write_text("dummy")
+    (app / "backup-recipients.txt").write_text("dummy-public-recipient")
+    age = app / "bin/age"
+    age.write_text("#!/bin/bash\ncat\n")
+    age.chmod(0o700)
     env = os.environ | {"APP_DIR": directory, "PATH": f"{app / 'bin'}:{os.environ['PATH']}"}
     docker = app / "bin/docker"
     docker.write_text("#!/bin/bash\necho partial\nexit 1\n")

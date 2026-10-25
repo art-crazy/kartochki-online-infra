@@ -19,13 +19,16 @@ RCLONE_FULL_REMOTE_PATH="${RCLONE_FULL_REMOTE_PATH:-kartochki-online/complete}"
 FULL_BACKUP_DIR="${FULL_BACKUP_DIR:-$APP_DIR/backups/complete}"
 RETENTION_DAYS="${RETENTION_DAYS:-14}"
 REMOTE_RETENTION_DAYS="${REMOTE_RETENTION_DAYS:-30}"
+BACKUP_RECIPIENTS_FILE="${BACKUP_RECIPIENTS_FILE:-$APP_DIR/backup-recipients.txt}"
 for days in "$RETENTION_DAYS" "$REMOTE_RETENTION_DAYS"; do
   [[ "$days" =~ ^[0-9]+$ ]] || { echo 'Invalid backup retention' >&2; exit 2; }
 done
 [[ -s "$RCLONE_CONFIG_FILE" ]] || { echo 'Missing rclone config' >&2; exit 1; }
+[[ -s "$BACKUP_RECIPIENTS_FILE" ]] || { echo 'Missing age backup recipients' >&2; exit 1; }
+command -v age >/dev/null || { echo 'Install age first' >&2; exit 1; }
 install -d -m 700 "$FULL_BACKUP_DIR"
 stage="$(mktemp -d "$FULL_BACKUP_DIR/.staging.XXXXXX")"
-name="kartochki-complete-$(date -u +%Y%m%dT%H%M%S)-$$.tar.gz"
+name="kartochki-complete-$(date -u +%Y%m%dT%H%M%S)-$$.tar.gz.age"
 archive="$FULL_BACKUP_DIR/$name"
 cleanup() { rm -rf -- "$stage"; rm -f -- "$archive.partial"; }
 trap cleanup EXIT
@@ -42,8 +45,8 @@ docker compose images --format json > "$stage/images.json"
   cd "$stage"
   sha256sum database.sql.gz storage.tar.gz created-at.txt images.json > SHA256SUMS
 )
-tar -czf "$archive.partial" -C "$stage" .
-tar -tzf "$archive.partial" >/dev/null
+# The recipient is public; the owner's decryption identity never lives here.
+tar -czf - -C "$stage" . | age -R "$BACKUP_RECIPIENTS_FILE" > "$archive.partial"
 mv -- "$archive.partial" "$archive"
 local_hash="$(sha256sum "$archive" | cut -d ' ' -f 1)"
 remote="$RCLONE_REMOTE:$RCLONE_FULL_REMOTE_PATH"
@@ -71,9 +74,9 @@ date -u +%FT%TZ > "$stage/COMPLETE"
 "${rclone_cmd[@]}" copyto "$stage/COMPLETE" "$remote/$name/COMPLETE" --immutable
 
 # Prune only after both the upload and its read-back verification succeeded.
-"${rclone_cmd[@]}" delete "$remote" --min-age "${REMOTE_RETENTION_DAYS}d" --include '/kartochki-complete-*.tar.gz/**' --include 'kartochki-complete-*.tar.gz' --include 'kartochki-complete-*.tar.gz.sha256'
+"${rclone_cmd[@]}" delete "$remote" --min-age "${REMOTE_RETENTION_DAYS}d" --include '/kartochki-complete-*.tar.gz.age/**' --include '/kartochki-complete-*.tar.gz/**' --include 'kartochki-complete-*.tar.gz' --include 'kartochki-complete-*.tar.gz.sha256'
 "${rclone_cmd[@]}" rmdirs "$remote" --leave-root
-find "$FULL_BACKUP_DIR" -maxdepth 1 -type f \( -name 'kartochki-complete-*.tar.gz' -o -name 'kartochki-complete-*.tar.gz.sha256' \) -mtime +"$RETENTION_DAYS" -delete
+find "$FULL_BACKUP_DIR" -maxdepth 1 -type f \( -name 'kartochki-complete-*.tar.gz*' \) -mtime +"$RETENTION_DAYS" -delete
 printf '%s\n%s\n%s\n' "$(date -u +%FT%TZ)" "$remote/$name" "$local_hash" > "$FULL_BACKUP_DIR/.last-success.partial"
 mv -- "$FULL_BACKUP_DIR/.last-success.partial" "$FULL_BACKUP_DIR/last-success"
 echo "Verified backup: $remote/$name (SHA256 $local_hash)"
