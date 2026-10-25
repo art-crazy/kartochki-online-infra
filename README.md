@@ -23,6 +23,7 @@ Uses:
 - `scripts/backup-postgres.sh` - atomic local PostgreSQL backup.
 - `scripts/backup-all-to-yandex-disk.sh` - verified PostgreSQL + media backup.
 - `scripts/setup-backups.sh` - persistent daily systemd timer.
+- `scripts/install-backup-rclone.sh` - pinned SHA256-verified backup client.
 - `scripts/setup-yandex-disk-rclone.sh` - non-interactive rclone setup for Yandex Disk.
 - `scripts/backup-postgres-to-yandex-disk.sh` - PostgreSQL backup upload to Yandex Disk.
 - `env/.env.example` - mock GitHub Repository Secrets for infra/deploy.
@@ -207,7 +208,7 @@ The daily timer below includes this dump. Do not install a second cron job.
 
 Local backup on the same VPS is not enough.
 
-## Yandex Disk Backup
+## Legacy WebDAV database-only upload
 
 Use a Yandex app password, not the main account password.
 
@@ -252,50 +253,57 @@ REMOTE_RETENTION_DAYS=14
 
 ## Daily complete backup (production)
 
-`setup-server.yml` installs the backup scripts and **enables the timer** after configuring rclone.
-For an existing server, install only these scripts; running the entire setup workflow can also replace Caddy and Compose configuration.
+Production uses the **native Yandex Disk API**, not WebDAV. The WebDAV configuration and old
+PostgreSQL-only upload script remain for compatibility; the automatic timer does not use them.
+
+Required provisioning:
+
+- GitHub Secret `YANDEX_DISK_API_CONFIG`: private rclone INI configuration with a `[yandex_disk]`
+  remote, `type = yandex`, your own OAuth application's client ID/secret and a valid OAuth token.
+  Use a dedicated application with `cloud_api:disk.read`, `cloud_api:disk.write`, `cloud_api:disk.info`.
+  Never put OAuth tokens in Git. Reauthorize when the token expires if it cannot be refreshed.
+- Repository variable `BACKUP_RECIPIENT`: the owner's public age or SSH recipient, never a private key.
+
+`setup-server.yml` installs scripts, the public recipient, native API credentials and **enables the timer**.
+For an existing server, install only backup files; the full setup workflow can also replace Caddy and Compose.
 
 ```bash
-# First provision age and the public recipient (never a private key):
-sudo apt-get install -y age
+sudo apt-get install -y age python3 curl
 sudo install -m 0644 owner-public-key.pub /opt/kartochki/backup-recipients.txt
+# Provision /opt/kartochki/rclone-api.conf with mode 0600, owned by the deploy user.
 sudo bash /opt/kartochki/setup-backups.sh
 sudo systemctl start kartochki-backup.service
 ```
 
+The isolated rclone runtime is pinned to v1.75.2 and installed under
+`/usr/local/lib/kartochki-backup/rclone` after verifying the official release SHA256. The distro client
+is unchanged. Update the version explicitly in `install-backup-rclone.sh` when upgrading.
+
 The timer runs daily at **03:15 Europe/Moscow**, with up to five minutes of jitter.
 `Persistent=true` catches a missed run after the server returns. It runs as the app directory owner,
-uses a lock to prevent overlap, and fails visibly in systemd on dump, upload, or checksum errors.
-Remove old backup cron entries if present before switching; the installer does not rewrite users' crontabs.
+locks against overlap, and fails visibly in systemd on dump, encryption, upload or checksum errors.
+Remove old backup cron entries if present; the installer does not rewrite users' crontabs.
 
 Each archive contains `database.sql.gz`, `storage.tar.gz` (all `/app/storage` media),
 `created-at.txt`, `images.json` and `SHA256SUMS`. Temporary files are not published as completed backups.
-The application keeps running; the database snapshot is taken before the media archive. This is not
-an atomic snapshot across PostgreSQL and the filesystem: avoid deleting media during backup.
-Redis/Asynq queues are not copied. After disaster recovery, reconcile pending/in-flight generation
-jobs against the restored PostgreSQL state before resuming workers; the backup does not preserve
-queue delivery state. App environment and credentials remain
-in the existing deployment configuration and GitHub Secrets; retain those separately for disaster recovery.
+The application keeps running; the DB snapshot precedes the media archive. This is not an atomic
+snapshot across PostgreSQL and files: avoid deleting media during backup. Redis/Asynq queues are not
+copied; reconcile pending/in-flight generation jobs against PostgreSQL before resuming recovered workers.
+App credentials remain in deployment configuration/GitHub Secrets and must be retained separately.
 
 Complete archives are saved in `/opt/kartochki/backups/complete` (14 days) and
-`yandex_disk:kartochki-online/complete` (30 days). Each remote backup is a directory
-containing 16 MiB archive parts, `PARTS.sha256`, `ARCHIVE.sha256`, and a final `COMPLETE` marker.
-Only directories with `COMPLETE` count as finished remote backups. Local archives have a `.sha256` sidecar.
+`yandex_disk:kartochki-online/complete` (30 days), with `.sha256` sidecars.
 The old `kartochki-online/postgres` directory is preserved and is not cleaned by this timer.
-`RCLONE_FULL_REMOTE_PATH` overrides the complete-archive remote directory;
-`RCLONE_REMOTE_PATH` continues to configure legacy database-only uploads.
-Optional variables can be set in a service drop-in (`Environment=...`):
-`RCLONE_FULL_REMOTE_PATH`, `RETENTION_DAYS`, `REMOTE_RETENTION_DAYS`, `FULL_BACKUP_DIR`.
-`yandex-disk.env` is loaded if present; its existing shell-escaped credentials are never logged.
+Optional service environment variables: `RCLONE_FULL_REMOTE_PATH`, `RETENTION_DAYS`,
+`REMOTE_RETENTION_DAYS`, `FULL_BACKUP_DIR`, `RCLONE_CONFIG_FILE`, `RCLONE_BIN`, `BACKUP_RECIPIENTS_FILE`.
 
-The uploader reads each remote part back and compares SHA256 before marking success or pruning
-old complete archives. Backups use the existing Yandex Disk WebDAV account over HTTPS; this workflow
-encrypts complete archives with age before upload. Local complete archives are encrypted too;
-the separate local DB dump remains private plaintext gzip. Public recipients live in
-`/opt/kartochki/backup-recipients.txt`. Set repository variable `BACKUP_RECIPIENT` for repeatable
-server setup. The configured recipient is the owner's existing SSH public key; recovery uses its
-matching local SSH private key (`~/.ssh/id_rsa`). The private key is never uploaded to the VPS.
-Keep an independent copy of that identity: changing/removing it does not re-encrypt old backups.
+The uploader downloads the remote archive and verifies SHA256 before marking success or pruning.
+Native uploads wait two seconds for Yandex's asynchronous finalization before setting metadata.
+Archives are encrypted with age before upload. Local complete archives are encrypted too; the separate
+local DB dump remains private plaintext gzip. Recipients live in `/opt/kartochki/backup-recipients.txt`.
+The current recipient is the owner's existing SSH public key; recovery uses matching local
+`~/.ssh/id_rsa`. That private key is never uploaded to the VPS. Preserve an independent copy of it:
+changing or removing the key does not re-encrypt old backups.
 
 ```bash
 systemctl status kartochki-backup.timer kartochki-backup.service
@@ -303,25 +311,21 @@ journalctl -u kartochki-backup.service --since '2 days ago'
 cat /opt/kartochki/backups/complete/last-success
 ```
 
-`last-success` records UTC completion time, remote archive path and SHA256; it only advances after
-verified upload and retention complete. Monitor its age externally (alert after 26 hours) and the
-service failure state. The timer alone does not send external notifications.
+`last-success` contains UTC completion time, remote path and SHA256; it advances only after a verified
+upload and successful retention. Monitor its age externally (alert after 26 hours) and service failure.
+The timer does not send external notifications.
 
 ### Recovery verification
 
-Download all files from a remote backup directory with a `COMPLETE` marker. On an isolated
-recovery host, verify and assemble the parts (use the actual archive name from `ARCHIVE.sha256`):
+Download the archive and matching `.sha256`. On an isolated recovery host:
 
 ```bash
-sha256sum -c PARTS.sha256
-cat kartochki-complete-*.tar.gz.age.part-* > "$(awk '{print $2}' ARCHIVE.sha256)"
-sha256sum -c ARCHIVE.sha256
-age --decrypt -i ~/.ssh/id_rsa "$(awk '{print $2}' ARCHIVE.sha256)" > recovered.tar.gz
+sha256sum -c kartochki-complete-*.tar.gz.age.sha256
+age --decrypt -i ~/.ssh/id_rsa BACKUP.tar.gz.age > recovered.tar.gz
 ```
 
 Extract `recovered.tar.gz` into a private directory and run `sha256sum -c SHA256SUMS`.
-Restore `database.sql.gz` into a **new PostgreSQL 17 database** using `psql -v ON_ERROR_STOP=1`.
-The dump excludes original owner/ACL statements so the restore role can own recovered objects;
-reapply required application grants before switching production. Inspect and extract `storage.tar.gz`
-into a separate directory/volume, then compare table counts and media checksums before using it.
-Never pipe a verification restore into the running production database.
+Restore `database.sql.gz` into a **new PostgreSQL 17 database** with `psql -v ON_ERROR_STOP=1`.
+The dump omits original owner/ACL statements so the recovery role owns restored objects; reapply
+required app grants before production use. Extract `storage.tar.gz` into a separate volume/directory;
+compare table counts and media checksums. Never verify a restore against the live production database.

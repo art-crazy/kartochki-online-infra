@@ -48,6 +48,7 @@ jobs:
 
           scp -i ~/.ssh/server_key scripts/backup-all-to-yandex-disk.sh root@${{ secrets.SERVER_HOST }}:/tmp/kartochki-backup-all-to-yandex-disk.sh
           scp -i ~/.ssh/server_key scripts/setup-backups.sh root@${{ secrets.SERVER_HOST }}:/tmp/kartochki-setup-backups.sh
+          scp -i ~/.ssh/server_key scripts/install-backup-rclone.sh root@${{ secrets.SERVER_HOST }}:/tmp/kartochki-install-backup-rclone.sh
 
           ssh -i ~/.ssh/server_key root@${{ secrets.SERVER_HOST }} '
             set -e
@@ -62,6 +63,7 @@ jobs:
             install -m 0755 -o "$deploy_user" -g "$deploy_user" /tmp/kartochki-backup-postgres-to-yandex-disk.sh /opt/kartochki/backup-postgres-to-yandex-disk.sh
             install -m 0755 -o "$deploy_user" -g "$deploy_user" /tmp/kartochki-backup-all-to-yandex-disk.sh /opt/kartochki/backup-all-to-yandex-disk.sh
             install -m 0755 -o root -g root /tmp/kartochki-setup-backups.sh /opt/kartochki/setup-backups.sh
+            install -m 0755 -o root -g root /tmp/kartochki-install-backup-rclone.sh /opt/kartochki/install-backup-rclone.sh
             rm -f /tmp/kartochki-*
           '
 
@@ -132,6 +134,16 @@ jobs:
             sudo -u "$deploy_user" bash -lc "set -a; . ./yandex-disk.env; set +a; ./setup-yandex-disk-rclone.sh"
           '
 
+      - name: Configure native Yandex Disk API backup
+        env:
+          YANDEX_DISK_API_CONFIG: ${{ secrets.YANDEX_DISK_API_CONFIG }}
+          DEPLOY_USER: ${{ secrets.SERVER_USER }}
+        run: |
+          if [ -n "$YANDEX_DISK_API_CONFIG" ]; then
+            printf '%s\n' "$YANDEX_DISK_API_CONFIG" | ssh -i ~/.ssh/server_key root@${{ secrets.SERVER_HOST }} \
+              "install -m 0600 -o '$DEPLOY_USER' -g '$DEPLOY_USER' /dev/stdin /opt/kartochki/rclone-api.conf"
+          fi
+
       - name: Configure public backup recipient
         env:
           BACKUP_RECIPIENT: ${{ vars.BACKUP_RECIPIENT }}
@@ -145,10 +157,10 @@ jobs:
         run: |
           ssh -i ~/.ssh/server_key root@${{ secrets.SERVER_HOST }} '
             set -e
-            if [ -s /opt/kartochki/rclone.conf ]; then
+            if [ -s /opt/kartochki/rclone-api.conf ]; then
               bash /opt/kartochki/setup-backups.sh
             else
-              echo "No rclone config; backup timer cannot be installed."
+              echo "No native API config; backup timer cannot be installed."
               exit 1
             fi
           '

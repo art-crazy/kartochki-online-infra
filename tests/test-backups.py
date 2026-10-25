@@ -15,12 +15,12 @@ with tempfile.TemporaryDirectory(prefix="kartochki-backup-test-") as directory:
     complete.mkdir(parents=True)
     for name in ("backup-postgres.sh", "backup-all-to-yandex-disk.sh"):
         shutil.copy(source / name, app / name)
-    (app / "rclone.conf").write_text("dummy")
+    (app / "rclone-api.conf").write_text("dummy")
     (app / "backup-recipients.txt").write_text("dummy-public-recipient")
     age = app / "bin/age"
     age.write_text("#!/bin/bash\ncat\n")
     age.chmod(0o700)
-    env = os.environ | {"APP_DIR": directory, "PATH": f"{app / 'bin'}:{os.environ['PATH']}"}
+    env = os.environ | {"APP_DIR": directory, "PATH": f"{app / 'bin'}:{os.environ['PATH']}", "RCLONE_BIN": str(app / "bin/rclone")}
     docker = app / "bin/docker"
     docker.write_text("#!/bin/bash\necho partial\nexit 1\n")
     docker.chmod(0o700)
@@ -68,6 +68,16 @@ exit 0
     assert marker.read_text() == "previous-success" and old_archive.exists()
     print("PASS: checksum mismatch fails without advancing success or pruning")
 
+    existing_archives = set(complete.glob("*.tar.gz.age"))
+    age.write_text("#!/bin/bash\nexit 1\n")
+    result = subprocess.run(["bash", str(app / "backup-all-to-yandex-disk.sh")], env=env, capture_output=True)
+    assert result.returncode != 0
+    assert set(complete.glob("*.tar.gz.age")) == existing_archives
+    assert not list(complete.glob("*.partial"))
+    assert marker.read_text() == "previous-success"
+    age.write_text("#!/bin/bash\ncat\n")
+    print("PASS: encryption failure does not publish an archive or success marker")
+
     rclone.write_text('''#!/usr/bin/env python3
 import os
 from pathlib import Path
@@ -83,24 +93,14 @@ if "copyto" in args:
 elif "cat" in args:
     sys.stdout.buffer.write((remote / args[args.index("cat") + 1].rsplit("/", 1)[1]).read_bytes())
 ''')
-    # Exercise the multi-part path without producing a 16 MiB fixture in CI.
-    splitter = app / "bin/split"
-    splitter.write_text('''#!/usr/bin/env python3
-import os, sys
-os.execv("/usr/bin/split", ["split"] + ["64" if arg == "16M" else arg for arg in sys.argv[1:]])
-''')
-    splitter.chmod(0o700)
     result = subprocess.run(["bash", str(app / "backup-all-to-yandex-disk.sh")], env=env, capture_output=True)
     assert result.returncode == 0, result.stderr.decode()
     assert "kartochki-online/complete/kartochki-complete-" in marker.read_text()
     remote = app / "mock-remote"
-    parts = sorted(remote.glob("*.part-*"))
-    assert len(parts) > 1
-    expected_hash, archive_name = (remote / "ARCHIVE.sha256").read_text().split()
-    assembled = b"".join(part.read_bytes() for part in parts)
-    assert hashlib.sha256(assembled).hexdigest() == expected_hash
-    assert assembled == (complete / archive_name).read_bytes()
-    assert (remote / "COMPLETE").exists()
+    remote_archive = next(remote.glob("*.tar.gz.age"))
+    expected_hash, archive_name = (remote / (remote_archive.name + ".sha256")).read_text().split()
+    assert hashlib.sha256(remote_archive.read_bytes()).hexdigest() == expected_hash
+    assert remote_archive.read_bytes() == (complete / archive_name).read_bytes()
     assert not old_archive.exists(), "Retention should run after verified upload"
     assert not list(complete.glob(".staging.*"))
     print("PASS: verified upload publishes checksum and success marker, then applies retention")

@@ -5,10 +5,12 @@ APP_DIR="${APP_DIR:-/opt/kartochki}"
 DEPLOY_USER="${DEPLOY_USER:-$(stat -c %U "$APP_DIR")}"
 [[ "$APP_DIR" == /opt/kartochki ]] || { echo 'Units currently require APP_DIR=/opt/kartochki' >&2; exit 1; }
 id "$DEPLOY_USER" >/dev/null
-[[ -s "$APP_DIR/rclone.conf" ]] || { echo 'Configure Yandex Disk first' >&2; exit 1; }
+[[ -s "$APP_DIR/rclone-api.conf" ]] || { echo 'Configure Yandex Disk API first' >&2; exit 1; }
 [[ -s "$APP_DIR/backup-recipients.txt" ]] || { echo 'Configure public age recipients first' >&2; exit 1; }
 command -v age >/dev/null || { echo 'Install age first' >&2; exit 1; }
 [[ -x "$APP_DIR/backup-all-to-yandex-disk.sh" ]] || { echo 'Install the backup scripts first' >&2; exit 1; }
+
+bash "$APP_DIR/install-backup-rclone.sh"
 
 cat > /etc/systemd/system/kartochki-backup.service <<EOF
 [Unit]

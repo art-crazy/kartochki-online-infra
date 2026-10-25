@@ -13,7 +13,7 @@ fi
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
-apt-get install -y ca-certificates curl gnupg ufw fail2ban unattended-upgrades rclone age
+apt-get install -y ca-certificates curl gnupg ufw fail2ban unattended-upgrades rclone age python3
 
 install -m 0755 -d /etc/apt/keyrings
 if [ ! -f /etc/apt/keyrings/docker.gpg ]; then
