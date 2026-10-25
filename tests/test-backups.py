@@ -4,6 +4,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import hashlib
 
 
 source = Path(__file__).resolve().parents[1] / "scripts"
@@ -70,17 +71,32 @@ import shutil
 import sys
 args = sys.argv[1:]
 remote = Path(os.environ["APP_DIR"]) / "mock-remote"
+remote.mkdir(exist_ok=True)
 if "copyto" in args:
     index = args.index("copyto")
-    target = remote.with_suffix(".sha256") if args[index + 2].endswith(".sha256") else remote
+    target = remote / args[index + 2].rsplit("/", 1)[1]
     shutil.copyfile(args[index + 1], target)
 elif "cat" in args:
-    sys.stdout.buffer.write(remote.read_bytes())
+    sys.stdout.buffer.write((remote / args[args.index("cat") + 1].rsplit("/", 1)[1]).read_bytes())
 ''')
+    # Exercise the multi-part path without producing a 16 MiB fixture in CI.
+    splitter = app / "bin/split"
+    splitter.write_text('''#!/usr/bin/env python3
+import os, sys
+os.execv("/usr/bin/split", ["split"] + ["64" if arg == "16M" else arg for arg in sys.argv[1:]])
+''')
+    splitter.chmod(0o700)
     result = subprocess.run(["bash", str(app / "backup-all-to-yandex-disk.sh")], env=env, capture_output=True)
     assert result.returncode == 0, result.stderr.decode()
     assert "kartochki-online/complete/kartochki-complete-" in marker.read_text()
-    assert (app / "mock-remote.sha256").exists()
+    remote = app / "mock-remote"
+    parts = sorted(remote.glob("*.part-*"))
+    assert len(parts) > 1
+    expected_hash, archive_name = (remote / "ARCHIVE.sha256").read_text().split()
+    assembled = b"".join(part.read_bytes() for part in parts)
+    assert hashlib.sha256(assembled).hexdigest() == expected_hash
+    assert assembled == (complete / archive_name).read_bytes()
+    assert (remote / "COMPLETE").exists()
     assert not old_archive.exists(), "Retention should run after verified upload"
     assert not list(complete.glob(".staging.*"))
     print("PASS: verified upload publishes checksum and success marker, then applies retention")
