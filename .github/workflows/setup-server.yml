@@ -46,6 +46,9 @@ jobs:
           scp -i ~/.ssh/server_key scripts/setup-yandex-disk-rclone.sh root@${{ secrets.SERVER_HOST }}:/tmp/kartochki-setup-yandex-disk-rclone.sh
           scp -i ~/.ssh/server_key scripts/backup-postgres-to-yandex-disk.sh root@${{ secrets.SERVER_HOST }}:/tmp/kartochki-backup-postgres-to-yandex-disk.sh
 
+          scp -i ~/.ssh/server_key scripts/backup-all-to-yandex-disk.sh root@${{ secrets.SERVER_HOST }}:/tmp/kartochki-backup-all-to-yandex-disk.sh
+          scp -i ~/.ssh/server_key scripts/setup-backups.sh root@${{ secrets.SERVER_HOST }}:/tmp/kartochki-setup-backups.sh
+
           ssh -i ~/.ssh/server_key root@${{ secrets.SERVER_HOST }} '
             set -e
             deploy_user='"$DEPLOY_USER"'
@@ -57,6 +60,8 @@ jobs:
             install -m 0755 -o "$deploy_user" -g "$deploy_user" /tmp/kartochki-backup-postgres.sh /opt/kartochki/backup-postgres.sh
             install -m 0755 -o "$deploy_user" -g "$deploy_user" /tmp/kartochki-setup-yandex-disk-rclone.sh /opt/kartochki/setup-yandex-disk-rclone.sh
             install -m 0755 -o "$deploy_user" -g "$deploy_user" /tmp/kartochki-backup-postgres-to-yandex-disk.sh /opt/kartochki/backup-postgres-to-yandex-disk.sh
+            install -m 0755 -o "$deploy_user" -g "$deploy_user" /tmp/kartochki-backup-all-to-yandex-disk.sh /opt/kartochki/backup-all-to-yandex-disk.sh
+            install -m 0755 -o root -g root /tmp/kartochki-setup-backups.sh /opt/kartochki/setup-backups.sh
             rm -f /tmp/kartochki-*
           '
 
@@ -125,6 +130,18 @@ jobs:
             rm -f /tmp/kartochki-yandex-disk.env
             cd /opt/kartochki
             sudo -u "$deploy_user" bash -lc "set -a; . ./yandex-disk.env; set +a; ./setup-yandex-disk-rclone.sh"
+          '
+
+      - name: Install daily backup timer
+        run: |
+          ssh -i ~/.ssh/server_key root@${{ secrets.SERVER_HOST }} '
+            set -e
+            if [ -s /opt/kartochki/rclone.conf ]; then
+              bash /opt/kartochki/setup-backups.sh
+            else
+              echo "No rclone config; backup timer cannot be installed."
+              exit 1
+            fi
           '
 
       - name: Validate compose config

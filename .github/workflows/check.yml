@@ -1,0 +1,15 @@
+name: Check backup scripts
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check shell syntax
+        run: for file in scripts/*.sh; do bash -n "$file"; done
+      - name: Check backup failure handling
+        run: python3 tests/test-backups.py

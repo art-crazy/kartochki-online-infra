@@ -20,7 +20,9 @@ Uses:
 - `scripts/bootstrap.sh` - first Ubuntu setup.
 - `scripts/deploy.sh` - service deploy.
 - `scripts/configure-postgres-public-access.sh` - optional PostgreSQL public access firewall.
-- `scripts/backup-postgres.sh` - local PostgreSQL backup.
+- `scripts/backup-postgres.sh` - atomic local PostgreSQL backup.
+- `scripts/backup-all-to-yandex-disk.sh` - verified PostgreSQL + media backup.
+- `scripts/setup-backups.sh` - persistent daily systemd timer.
 - `scripts/setup-yandex-disk-rclone.sh` - non-interactive rclone setup for Yandex Disk.
 - `scripts/backup-postgres-to-yandex-disk.sh` - PostgreSQL backup upload to Yandex Disk.
 - `env/.env.example` - mock GitHub Repository Secrets for infra/deploy.
@@ -53,6 +55,8 @@ deploy.sh
 backup-postgres.sh
 setup-yandex-disk-rclone.sh
 backup-postgres-to-yandex-disk.sh
+backup-all-to-yandex-disk.sh
+setup-backups.sh
 ```
 
 Copy `docker-compose.prod.yml` to the server as `docker-compose.yml`.
@@ -199,11 +203,7 @@ cd /opt/kartochki
 ./backup-postgres.sh
 ```
 
-Cron:
-
-```cron
-15 3 * * * APP_DIR=/opt/kartochki /opt/kartochki/backup-postgres.sh >/tmp/kartochki-backup.log 2>&1
-```
+The daily timer below includes this dump. Do not install a second cron job.
 
 Local backup on the same VPS is not enough.
 
@@ -235,11 +235,7 @@ cd /opt/kartochki
 ./backup-postgres-to-yandex-disk.sh
 ```
 
-Cron:
-
-```cron
-15 3 * * * APP_DIR=/opt/kartochki /opt/kartochki/backup-postgres-to-yandex-disk.sh >/tmp/kartochki-backup.log 2>&1
-```
+This command is a legacy database-only backup. The daily timer below includes media too; do not run both schedules.
 
 Default remote path:
 
@@ -252,3 +248,59 @@ Remote backups older than `30` days are deleted. Override with:
 ```text
 REMOTE_RETENTION_DAYS=14
 ```
+
+
+## Daily complete backup (production)
+
+`setup-server.yml` installs the backup scripts and **enables the timer** after configuring rclone.
+For an existing server, install only these scripts; running the entire setup workflow can also replace Caddy and Compose configuration.
+
+```bash
+sudo bash /opt/kartochki/setup-backups.sh
+sudo systemctl start kartochki-backup.service
+```
+
+The timer runs daily at **03:15 Europe/Moscow**, with up to five minutes of jitter.
+`Persistent=true` catches a missed run after the server returns. It runs as the app directory owner,
+uses a lock to prevent overlap, and fails visibly in systemd on dump, upload, or checksum errors.
+Remove old backup cron entries if present before switching; the installer does not rewrite users' crontabs.
+
+Each archive contains `database.sql.gz`, `storage.tar.gz` (all `/app/storage` media),
+`created-at.txt`, `images.json` and `SHA256SUMS`. Temporary files are not published as completed backups.
+The application keeps running; the database snapshot is taken before the media archive. This is not
+an atomic snapshot across PostgreSQL and the filesystem: avoid deleting media during backup.
+Redis is not copied; durable app data is PostgreSQL plus media. App environment and credentials remain
+in the existing deployment configuration and GitHub Secrets; retain those separately for disaster recovery.
+
+Complete archives are saved in `/opt/kartochki/backups/complete` (14 days) and
+`yandex_disk:kartochki-online/complete` (30 days), with separate `.sha256` files.
+The old `kartochki-online/postgres` directory is preserved and is not cleaned by this timer.
+`RCLONE_FULL_REMOTE_PATH` overrides the complete-archive remote directory;
+`RCLONE_REMOTE_PATH` continues to configure legacy database-only uploads.
+Optional variables can be set in a service drop-in (`Environment=...`):
+`RCLONE_FULL_REMOTE_PATH`, `RETENTION_DAYS`, `REMOTE_RETENTION_DAYS`, `FULL_BACKUP_DIR`.
+`yandex-disk.env` is loaded if present; its existing shell-escaped credentials are never logged.
+
+The uploader reads the remote archive back and compares SHA256 before marking success or pruning
+old complete archives. Backups use the existing Yandex Disk WebDAV account over HTTPS; this workflow
+does not add client-side encryption. Local backups are created with private permissions.
+
+```bash
+systemctl status kartochki-backup.timer kartochki-backup.service
+journalctl -u kartochki-backup.service --since '2 days ago'
+cat /opt/kartochki/backups/complete/last-success
+```
+
+`last-success` records UTC completion time, remote archive path and SHA256; it only advances after
+verified upload and retention complete. Monitor its age externally (alert after 26 hours) and the
+service failure state. The timer alone does not send external notifications.
+
+### Recovery verification
+
+Download an archive and its `.sha256` from the complete-backup directory. On an isolated recovery
+host, verify the outer checksum, extract it to a private directory and run `sha256sum -c SHA256SUMS`.
+Restore `database.sql.gz` into a **new PostgreSQL 17 database** using `psql -v ON_ERROR_STOP=1`.
+The dump excludes original owner/ACL statements so the restore role can own recovered objects;
+reapply required application grants before switching production. Inspect and extract `storage.tar.gz`
+into a separate directory/volume, then compare table counts and media checksums before using it.
+Never pipe a verification restore into the running production database.
