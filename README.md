@@ -5,7 +5,7 @@ Production infra for `kartochki-online-front` and `kartochki-online-backend`.
 Uses:
 
 - Docker Compose for runtime.
-- Caddy for HTTPS, reverse proxy, and automatic SSL renewal.
+- Independent `vps-infra` Caddy stack for HTTPS, reverse proxy, and automatic SSL renewal.
 - PostgreSQL 17 and Redis 7 in Docker.
 - `bootstrap.sh` instead of Ansible for first VPS setup.
 - GitHub Actions for image build, env file generation, and `deploy.sh`.
@@ -15,11 +15,9 @@ Uses:
 ## Files
 
 - `docker-compose.prod.yml` - production compose.
-- `docker-compose.postgres-public.yml` - optional PostgreSQL port publishing.
-- `Caddyfile` - HTTPS reverse proxy.
+- `Caddyfile` - compatibility note pointing to the independent proxy repository.
 - `scripts/bootstrap.sh` - first Ubuntu setup.
 - `scripts/deploy.sh` - service deploy.
-- `scripts/configure-postgres-public-access.sh` - optional PostgreSQL public access firewall.
 - `scripts/backup-postgres.sh` - atomic local PostgreSQL backup.
 - `scripts/backup-all-to-yandex-disk.sh` - verified PostgreSQL + media backup.
 - `scripts/setup-backups.sh` - persistent daily systemd timer.
@@ -47,7 +45,6 @@ Bootstrap:
 
 ```text
 docker-compose.yml
-Caddyfile
 .env
 backend.env
 frontend.env
@@ -62,8 +59,7 @@ install-backup-rclone.sh
 ```
 
 Copy `docker-compose.prod.yml` to the server as `docker-compose.yml`.
-Copy `docker-compose.postgres-public.yml` and `configure-postgres-public-access.sh`
-only if temporary public PostgreSQL access is needed.
+Deploy `art-crazy/vps-infra` before the application. Application setup does not modify its proxy.
 
 ## Infra Secrets
 
@@ -81,7 +77,6 @@ API_DOMAIN
 POSTGRES_DB
 POSTGRES_USER
 POSTGRES_PASSWORD
-POSTGRES_PUBLIC_ALLOWED_CIDR
 YANDEX_DISK_USERNAME
 YANDEX_DISK_APP_PASSWORD
 RCLONE_REMOTE_PATH
@@ -105,11 +100,7 @@ Infra GitHub Actions should generate:
 ```text
 DOMAIN
 API_DOMAIN
-POSTGRES_PUBLIC_ALLOWED_CIDR
 ```
-
-`POSTGRES_PUBLIC_ALLOWED_CIDR` is optional. Leave it empty to keep PostgreSQL private.
-Use a single trusted IP with `/32`, for example `198.51.100.10/32`.
 
 `/opt/kartochki/postgres.env`:
 
@@ -141,13 +132,13 @@ Backend deploy starts PostgreSQL and Redis, runs migrations, synchronizes blog c
 
 ## SSL
 
-Caddy issues and renews Let's Encrypt certificates automatically.
+The independent `/opt/vps-infra` Caddy issues and renews certificates automatically.
 
 Requirements:
 
 - DNS A records point to the server.
 - Ports `80` and `443` are open.
-- Volumes `caddy-data` and `caddy-config` are persistent.
+- Host-owned volumes `vps-edge-data` and `vps-edge-config` are persistent.
 
 Certbot is not needed.
 
@@ -163,40 +154,13 @@ Bootstrap opens only:
 
 PostgreSQL and Redis are not published publicly.
 
-Optional PostgreSQL public access:
+PostgreSQL and Redis are attached only to the internal `kartochki_data` network.
+There is no public-port override or firewall service to publish PostgreSQL. Administration uses
+SSH and `docker compose exec postgres psql`, or an SSH tunnel to the container's current private IP.
 
-1. Put the allowed client CIDR into `/opt/kartochki/.env`:
-
-```text
-POSTGRES_PUBLIC_ALLOWED_CIDR=198.51.100.10/32
-```
-
-2. Copy `docker-compose.postgres-public.yml` and `configure-postgres-public-access.sh` to `/opt/kartochki`.
-3. Run the firewall script as root:
-
-```bash
-cd /opt/kartochki
-sudo bash ./configure-postgres-public-access.sh
-```
-
-4. Redeploy PostgreSQL. `deploy.sh` will attach `docker-compose.postgres-public.yml`
-only when `POSTGRES_PUBLIC_ALLOWED_CIDR` is set:
-
-```bash
-cd /opt/kartochki
-./deploy.sh postgres
-```
-
-The extra compose file publishes `5432`, and the script limits access in Docker
-`DOCKER-USER`. This matters because Docker-published ports can bypass normal UFW
-rules.
-
-`deploy.sh` refuses to publish PostgreSQL until the firewall script has configured
-the same CIDR.
-
-When the script is run as root, it also installs
-`kartochki-postgres-public-access.service` so the Docker firewall rules are
-restored after a VPS reboot.
+Shared HTTPS is owned by `art-crazy/vps-infra`, deployed at `/opt/vps-infra`.
+The application stack does not own or start Caddy. `edge_kartochki` must exist before app deployment;
+only Caddy and Kartochki web/API connect to it. The frontend cannot access `kartochki_data` directly.
 
 ## Local PostgreSQL Backup
 

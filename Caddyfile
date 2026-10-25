@@ -1,24 +1,2 @@
-{$DOMAIN} {
-	encode zstd gzip
-
-	handle /api/* {
-		reverse_proxy backend:8080
-	}
-
-	handle /health/* {
-		reverse_proxy backend:8080
-	}
-
-	handle /media/* {
-		reverse_proxy backend:8080
-	}
-
-	handle {
-		reverse_proxy frontend:3000
-	}
-}
-
-{$API_DOMAIN} {
-	encode zstd gzip
-	reverse_proxy backend:8080
-}
+# Shared HTTPS is owned by art-crazy/vps-infra at /opt/vps-infra/edge/Caddyfile.
+# Application setup and deployment do not install or modify the shared proxy.
