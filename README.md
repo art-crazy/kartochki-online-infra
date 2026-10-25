@@ -275,7 +275,9 @@ queue delivery state. App environment and credentials remain
 in the existing deployment configuration and GitHub Secrets; retain those separately for disaster recovery.
 
 Complete archives are saved in `/opt/kartochki/backups/complete` (14 days) and
-`yandex_disk:kartochki-online/complete` (30 days), with separate `.sha256` files.
+`yandex_disk:kartochki-online/complete` (30 days). Each remote backup is a directory
+containing 16 MiB archive parts, `PARTS.sha256`, `ARCHIVE.sha256`, and a final `COMPLETE` marker.
+Only directories with `COMPLETE` count as finished remote backups. Local archives have a `.sha256` sidecar.
 The old `kartochki-online/postgres` directory is preserved and is not cleaned by this timer.
 `RCLONE_FULL_REMOTE_PATH` overrides the complete-archive remote directory;
 `RCLONE_REMOTE_PATH` continues to configure legacy database-only uploads.
@@ -283,7 +285,7 @@ Optional variables can be set in a service drop-in (`Environment=...`):
 `RCLONE_FULL_REMOTE_PATH`, `RETENTION_DAYS`, `REMOTE_RETENTION_DAYS`, `FULL_BACKUP_DIR`.
 `yandex-disk.env` is loaded if present; its existing shell-escaped credentials are never logged.
 
-The uploader reads the remote archive back and compares SHA256 before marking success or pruning
+The uploader reads each remote part back and compares SHA256 before marking success or pruning
 old complete archives. Backups use the existing Yandex Disk WebDAV account over HTTPS; this workflow
 does not add client-side encryption. Local backups are created with private permissions.
 
@@ -299,8 +301,16 @@ service failure state. The timer alone does not send external notifications.
 
 ### Recovery verification
 
-Download an archive and its `.sha256` from the complete-backup directory. On an isolated recovery
-host, verify the outer checksum, extract it to a private directory and run `sha256sum -c SHA256SUMS`.
+Download all files from a remote backup directory with a `COMPLETE` marker. On an isolated
+recovery host, verify and assemble the parts (use the actual archive name from `ARCHIVE.sha256`):
+
+```bash
+sha256sum -c PARTS.sha256
+cat kartochki-complete-*.tar.gz.part-* > "$(awk '{print $2}' ARCHIVE.sha256)"
+sha256sum -c ARCHIVE.sha256
+```
+
+Extract the assembled archive into a private directory and run `sha256sum -c SHA256SUMS`.
 Restore `database.sql.gz` into a **new PostgreSQL 17 database** using `psql -v ON_ERROR_STOP=1`.
 The dump excludes original owner/ACL statements so the restore role can own recovered objects;
 reapply required application grants before switching production. Inspect and extract `storage.tar.gz`
