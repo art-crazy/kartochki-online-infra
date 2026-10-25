@@ -269,7 +269,9 @@ Each archive contains `database.sql.gz`, `storage.tar.gz` (all `/app/storage` me
 `created-at.txt`, `images.json` and `SHA256SUMS`. Temporary files are not published as completed backups.
 The application keeps running; the database snapshot is taken before the media archive. This is not
 an atomic snapshot across PostgreSQL and the filesystem: avoid deleting media during backup.
-Redis is not copied; durable app data is PostgreSQL plus media. App environment and credentials remain
+Redis/Asynq queues are not copied. After disaster recovery, reconcile pending/in-flight generation
+jobs against the restored PostgreSQL state before resuming workers; the backup does not preserve
+queue delivery state. App environment and credentials remain
 in the existing deployment configuration and GitHub Secrets; retain those separately for disaster recovery.
 
 Complete archives are saved in `/opt/kartochki/backups/complete` (14 days) and
