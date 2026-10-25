@@ -58,6 +58,7 @@ setup-yandex-disk-rclone.sh
 backup-postgres-to-yandex-disk.sh
 backup-all-to-yandex-disk.sh
 setup-backups.sh
+install-backup-rclone.sh
 ```
 
 Copy `docker-compose.prod.yml` to the server as `docker-compose.yml`.
