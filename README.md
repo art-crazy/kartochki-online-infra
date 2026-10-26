@@ -230,7 +230,7 @@ Required provisioning:
 - Repository variable `BACKUP_RECIPIENT`: the owner's public age or SSH recipient, never a private key.
 
 `setup-server.yml` installs scripts, the public recipient, native API credentials and **enables the timer**.
-For an existing server, install only backup files; the full setup workflow can also replace Caddy and Compose.
+For an existing server, install only backup files; the full setup workflow also replaces project Compose and env configuration.
 
 ```bash
 sudo apt-get install -y age python3 curl
@@ -294,3 +294,7 @@ Restore `database.sql.gz` into a **new PostgreSQL 17 database** with `psql -v ON
 The dump omits original owner/ACL statements so the recovery role owns restored objects; reapply
 required app grants before production use. Extract `storage.tar.gz` into a separate volume/directory;
 compare table counts and media checksums. Never verify a restore against the live production database.
+
+## Перенос на другой сервер
+
+[Подготовка, конфигурация и восстановление](docs/move-to-new-host.md).
