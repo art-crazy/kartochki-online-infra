@@ -4,6 +4,7 @@ set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_DIR="${APP_DIR:-/opt/kartochki}"
 [[ -d "$APP_DIR" && -w "$APP_DIR" ]] || { echo 'Prepare APP_DIR via vps-infra first'; exit 2; }
+[[ -O "$APP_DIR" ]] || { echo "Run installation as the owner of $APP_DIR" >&2; exit 2; }
 exec 9>"$APP_DIR/.deploy.lock"
 flock -w 120 9
 install -m 0644 "$ROOT/docker-compose.prod.yml" "$APP_DIR/docker-compose.yml"

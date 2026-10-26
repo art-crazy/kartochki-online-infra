@@ -5,6 +5,7 @@ APP_DIR="${APP_DIR:-/opt/kartochki}"
 SERVICE="${1:-all}"
 
 cd "$APP_DIR"
+[[ -O . ]] || { echo "Run deployment as the owner of $APP_DIR" >&2; exit 2; }
 exec 9>.deploy.lock
 flock -w 120 9
 
