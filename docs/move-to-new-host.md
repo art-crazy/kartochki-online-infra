@@ -28,7 +28,10 @@
 POSTGRES_*, Yandex/VK/Telegram OAuth, RouterAI, SMTP, YooKassa, YANDEX_DISK_API_CONFIG.
 Перечень backend-переменных приведён в env/backend.env.example; CI приложений
 генерирует runtime env. Обновите адрес нового хоста и проверенные SSH fingerprints
-во всех трёх репозиториях (infra/backend/frontend). Для ручного переноса root-key
+во всех трёх репозиториях (infra/backend/frontend). Проверенные host keys должны
+быть записаны в Secret `SERVER_KNOWN_HOSTS`; workflow намеренно не доверяет
+непроверенному ssh-keyscan. Получите fingerprint через консоль провайдера и сверяйте
+его перед сохранением нового ключа. Для ручного переноса root-key
 GitHub не требуется. Приватный ключ расшифровки бэкапов хранится только у владельца.
 
 ## Данные до первого запуска backend

@@ -12,24 +12,23 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure SSH
+        env:
+          SERVER_KNOWN_HOSTS: ${{ secrets.SERVER_KNOWN_HOSTS }}
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           printf '%s\n' "${{ secrets.SERVER_ROOT_SSH_KEY }}" > ~/.ssh/server_key
           chmod 600 ~/.ssh/server_key
-          ssh-keyscan -H "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts
+          test -n "$SERVER_KNOWN_HOSTS"
+          printf '%s\n' "$SERVER_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
 
-      - name: Bootstrap server
+      - name: Verify host preparation
         env:
-          DEPLOY_PUBLIC_KEY: ${{ secrets.DEPLOY_PUBLIC_KEY }}
           DEPLOY_USER: ${{ secrets.SERVER_USER }}
         run: |
-          printf 'DEPLOY_PUBLIC_KEY=%q\n' "$DEPLOY_PUBLIC_KEY" > bootstrap.env
-          printf 'DEPLOY_USER=%q\n' "$DEPLOY_USER" >> bootstrap.env
-          scp -i ~/.ssh/server_key bootstrap.env root@${{ secrets.SERVER_HOST }}:/tmp/kartochki-bootstrap.env
           ssh -i ~/.ssh/server_key root@${{ secrets.SERVER_HOST }} \
-            "set -a; . /tmp/kartochki-bootstrap.env; rm -f /tmp/kartochki-bootstrap.env; set +a; bash -s" \
-            < scripts/bootstrap.sh
+            "id '$DEPLOY_USER' >/dev/null && docker compose version && docker network inspect edge_kartochki >/dev/null"
 
       - name: Upload infra files
         env:

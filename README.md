@@ -7,16 +7,16 @@ Uses:
 - Docker Compose for runtime.
 - Independent `vps-infra` Caddy stack for HTTPS, reverse proxy, and automatic SSL renewal.
 - PostgreSQL 17 and Redis 7 in Docker.
-- `bootstrap.sh` instead of Ansible for first VPS setup.
+- `vps-infra` for host setup; `install-project.sh` for project installation.
 - GitHub Actions for image build, env file generation, and `deploy.sh`.
 
-`bootstrap.sh` does not disable root login or password SSH.
+Host SSH policy is owned and applied by `vps-infra`.
 
 ## Files
 
 - `docker-compose.prod.yml` - production compose.
 - `Caddyfile` - compatibility note pointing to the independent proxy repository.
-- `scripts/bootstrap.sh` - first Ubuntu setup.
+- `scripts/bootstrap.sh` - retired entry point; directs to `vps-infra`.
 - `scripts/deploy.sh` - service deploy.
 - `scripts/backup-postgres.sh` - atomic local PostgreSQL backup.
 - `scripts/backup-all-to-yandex-disk.sh` - verified PostgreSQL + media backup.
@@ -28,16 +28,11 @@ Uses:
 
 ## Server Setup
 
-Download `scripts/bootstrap.sh` from this repository, review it, and run it as root.
-
-Bootstrap:
-
-- installs Docker, UFW, fail2ban, unattended-upgrades, rclone;
-- creates the deploy user from `SERVER_USER`;
-- adds the deploy user to the `docker` group;
-- creates `/opt/kartochki`;
-- opens `22`, `80`, `443`;
-- keeps current root/password SSH settings unchanged.
+Prepare Ubuntu, SSH, firewall, Docker and edge networking using
+`art-crazy/vps-infra/docs/new-host.md`, then follow
+[project installation and recovery](docs/move-to-new-host.md).
+`setup-server.yml` checks these prerequisites; it does not reinstall Docker or change host security.
+It replaces project env files and must only be run with reviewed current secrets.
 
 ## Server Files
 
@@ -71,7 +66,7 @@ Infra/deploy secrets:
 SERVER_HOST
 SERVER_USER
 SERVER_ROOT_SSH_KEY
-DEPLOY_PUBLIC_KEY
+SERVER_KNOWN_HOSTS
 DOMAIN
 API_DOMAIN
 POSTGRES_DB
@@ -84,7 +79,8 @@ RCLONE_REMOTE_PATH
 
 `SERVER_ROOT_SSH_KEY` is the private key for root SSH access used only by this infra workflow.
 
-`DEPLOY_PUBLIC_KEY` is the public key added to the deploy user's `authorized_keys`.
+`SERVER_KNOWN_HOSTS` contains verified SSH host keys; refresh it after a host migration.
+Deploy-user public keys are provisioned by vps-infra.
 
 Frontend/backend deploy workflows should use their own deploy private key, not `SERVER_ROOT_SSH_KEY`.
 
@@ -144,12 +140,13 @@ Certbot is not needed.
 
 ## Firewall
 
-Bootstrap opens only:
+The host-owned firewall allows:
 
 ```text
 22/tcp
 80/tcp
 443/tcp
+443/udp
 ```
 
 PostgreSQL and Redis are not published publicly.
