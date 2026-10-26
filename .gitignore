@@ -2,3 +2,13 @@
 *.env
 !.env.example
 !*.env.example
+
+# Runtime credentials and backup artifacts must never enter infrastructure Git.
+/rclone*.conf
+/backups/
+/.deploy.lock
+/.backup.lock
+*.dump
+*.sql.gz
+*.tar.gz.age
+*.tar.gz.age.sha256
