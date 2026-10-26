@@ -1,0 +1,8 @@
+# Private runtime file /opt/kartochki/rclone-api.conf, owner deploy user, mode 0600.
+# Authorize your own OAuth application using rclone; do not invent token JSON.
+# Save the COMPLETE resulting INI in GitHub Secret YANDEX_DISK_API_CONFIG.
+[yandex_disk]
+type = yandex
+client_id = REPLACE_WITH_OWN_APPLICATION_CLIENT_ID
+client_secret = REPLACE_WITH_OWN_APPLICATION_CLIENT_SECRET
+token = REPLACE_WITH_COMPLETE_AUTHORIZED_RCLONE_TOKEN_JSON
